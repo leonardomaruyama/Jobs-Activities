@@ -1,0 +1,13 @@
+    EXEC SQL.
+      CONNECT TO 'DBORACLE'
+    ENDEXEC.
+
+    EXEC SQL.
+      begin
+        BO_ADS.PR_EST_TRANSITO;
+      end;
+    ENDEXEC.
+
+    EXEC SQL.
+      DISCONNECT 'DBORACLE'
+    ENDEXEC.
