@@ -1,0 +1,238 @@
+CREATE OR REPLACE VIEW V_IQE_ESTOQUE_ATUAL AS
+WITH
+PERIODO AS
+(
+  SELECT ADD_MONTHS(TRUNC(SYSDATE,'MM'),0) MES, TRUNC(SYSDATE,'DD') DATA FROM DUAL
+),
+MATERIAL AS
+(
+  SELECT * FROM SAPR3.MAKT@ZLP WHERE MAKTX NOT LIKE '%ELIMINAR%'
+),
+PCP_PARAMETMRP AS
+(
+  SELECT DISTINCT A.MATNR,
+         B.WERKS,
+         B.BESKZ TP_SUP,
+         B.DISPO PLANEJ,
+         A.MTART TP_MAT,
+         A.MEINS,
+         B.PLIFZ PEP,
+         B.DISPO PL_MRP,
+         B.MINBE PT_REA,
+         B.EISBE PT_SEG,
+         B.BSTMI PT_MIN,
+         B.BSTMA PT_MAX,
+         B.BSTFE PT_FIX,
+         B.BSTRF QT_PED,
+         B.MABST EST_MAX
+   FROM SAPR3.MARA@ZLP A, SAPR3.MARC@ZLP B, MATERIAL D --SAPR3.PGMI@ZLP C,
+  WHERE A.MANDT = '100'
+    AND B.MANDT = '100'
+    --AND B.MMSTA IN (' ')
+    --AND A.MATNR = '167674'
+    AND B.WERKS IN ('LVAQ','BIBG','BISJ','AAAQ','AABG','AASJ','AGCQ','CPCQ','PDAQ')
+    --AND D.MAKTX NOT LIKE '%ELIMINAR%'
+    AND A.MATNR = D.MATNR(+)
+    AND A.MATNR = B.MATNR(+)
+    --AND A.MATNR = C.NRMIT(+)
+    --AND B.WERKS = C.WERKS
+  ORDER BY 1, 4
+),
+
+ESTOQUE_MOVIMENTO AS
+(
+  SELECT A.MATNR,
+         A.WERKS,
+         A.BWART,
+         A.SHKZG,
+         MAX(B.BUDAT) DT_MOV
+    FROM SAPR3.MSEG@ZLP A, SAPR3.MKPF@ZLP B, MATERIAL C
+   WHERE A.MANDT = '100'
+     AND A.BWART NOT BETWEEN '300' AND '499'
+     AND A.WERKS IN ('LVAQ','BIBG','BISJ','AAAQ','AABG','AASJ','AGCQ','CPCQ','PDAQ')
+     --AND A.BUDAT_MKPF NOT IN '00000000'
+     --AND C.MAKTX NOT LIKE '%ELIMINAR%'
+     AND A.MANDT = B.MANDT
+     AND A.MATNR = C.MATNR
+     AND A.MBLNR = B.MBLNR
+     AND A.MJAHR = B.MJAHR
+   GROUP BY A.MATNR, A.WERKS, A.BWART, A.SHKZG
+   ORDER BY 1, 2, 3
+),
+
+ESTOQUE_HISTORICO AS
+(
+  SELECT DISTINCT A.MESREF,
+         A.MATNR,
+         A.BWKEY WERKS,
+         NVL(A.LBKUM,0) LBKUM,
+         NVL(A.SALK3,0) SALK3,
+         NVL(A.VERPR,0) VERPR,
+         NVL(A.PEINH,0) PEINH,
+         0 LBKUM_ANT,
+         A.LAEPR,
+         A.BKLAS,
+         A.TIMESTAMP,
+         A.ATUAL
+   FROM
+       (
+          SELECT DISTINCT TRUNC(ADD_MONTHS(TO_DATE(A.LFGJA || A.LFMON || '01', 'YYYYMMDD'), -9),'MM') MESREF,
+                 A.MATNR, A.BWKEY, A.LBKUM, A.SALK3, A.VERPR, A.PEINH, NULL LAEPR, A.BKLAS,NULL TIMESTAMP, 1 ATUAL
+            FROM SAPR3.MBEWH@ZLP A, MATERIAL B, PERIODO C
+           WHERE A.MANDT = 100
+             AND TRUNC(ADD_MONTHS(TO_DATE(A.LFGJA || A.LFMON || '01', 'YYYYMMDD'), -9),'MM') = C.MES
+             AND A.BWKEY IN ('LVAQ','BIBG','BISJ','AAAQ','AABG','AASJ','AGCQ','CPCQ','PDAQ')
+             AND A.LFGJA NOT IN ('0000')
+             AND A.BWTAR IN (' ')
+             --AND B.MAKTX NOT LIKE '%ELIMINAR%'
+             AND A.MATNR = B.MATNR
+       ) A
+UNION ALL
+  SELECT DISTINCT B.MESREF,
+       A.MATNR,
+       A.BWKEY WERKS,
+       NVL(A.LBKUM,0) LBKUM,
+       NVL(A.SALK3,0) SALK3,
+       NVL(A.VERPR,0) VERPR,
+       NVL(A.PEINH,0) PEINH,
+       0 LBKUM_ANT,
+       A.LAEPR,
+       A.BKLAS,
+       A.TIMESTAMP,
+       A.ATUAL
+    FROM
+           (
+              SELECT DISTINCT TRUNC(ADD_MONTHS(TO_DATE(A.LFGJA || A.LFMON || '01', 'YYYYMMDD'), -9),'MM') MESREF,
+                    A.MATNR, A.BWKEY, A.LBKUM, A.SALK3, A.VERPR, A.PEINH, A.LAEPR, A.BKLAS,
+                    A.TIMESTAMP, 2 ATUAL
+                FROM SAPR3.MBEW@ZLP A, MATERIAL B--, PERIODO C
+               WHERE A.MANDT = 100
+                 --AND TRUNC(ADD_MONTHS(TO_DATE(A.LFGJA || A.LFMON || '01', 'YYYYMMDD'), -9),'MM') = C.MES
+                 AND BWKEY IN ('LVAQ','BIBG','BISJ','AAAQ','AABG','AASJ','AGCQ','CPCQ','PDAQ')
+                 AND A.LFGJA NOT IN ('0000')
+                 --AND B.MAKTX NOT LIKE '%ELIMINAR%'
+                 AND A.MATNR = B.MATNR
+                 AND A.BWTAR IN (' '))  A,
+           (
+              SELECT ADD_MONTHS(TRUNC(SYSDATE, 'MM'), MX) MESREF
+                FROM DUAL,
+                   (SELECT ROWNUM - 241 MX FROM DUAL CONNECT BY ROWNUM < = 241) A) B
+     WHERE A.MESREF(+) <= B.MESREF
+UNION ALL
+  SELECT DISTINCT A.MESREF,
+         A.MATNR,
+         A.BWKEY WERKS,
+         0 LBKUM,
+         0 SALK3,
+         0 VERPR,
+         0 PEINH,
+         NVL(A.LBKUM,0) LBKUM_ANT,
+         A.LAEPR,
+         A.BKLAS,
+         A.TIMESTAMP,
+         A.ATUAL
+   FROM
+       (
+          SELECT DISTINCT ADD_MONTHS(TRUNC(ADD_MONTHS(TO_DATE(A.LFGJA || A.LFMON || '01', 'YYYYMMDD'), -9),'MM'),12) MESREF,
+                 A.MATNR, A.BWKEY, A.LBKUM, A.SALK3, A.VERPR, A.PEINH, NULL LAEPR, A.BKLAS, NULL TIMESTAMP, 3 ATUAL
+            FROM SAPR3.MBEWH@ZLP A, MATERIAL B, PERIODO C
+           WHERE A.MANDT = 100
+             AND TRUNC(ADD_MONTHS(TO_DATE(A.LFGJA || A.LFMON || '01', 'YYYYMMDD'), -9),'MM') = ADD_MONTHS(C.MES,-12)
+             AND A.BWKEY IN ('LVAQ','BIBG','BISJ','AAAQ','AABG','AASJ','AGCQ','CPCQ','PDAQ')
+             AND A.LFGJA NOT IN ('0000')
+             AND A.BWTAR IN (' ')
+             --AND B.MAKTX NOT LIKE '%ELIMINAR%'
+             AND A.MATNR = B.MATNR
+       ) A
+
+UNION ALL
+  SELECT DISTINCT B.MESREF,
+       A.MATNR,
+       A.BWKEY WERKS,
+       0 LBKUM,
+       0 SALK3,
+       0 VERPR,
+       0 PEINH,
+       NVL(A.LBKUM,0) LBKUM_ANT,
+       A.LAEPR,
+       A.BKLAS,
+       A.TIMESTAMP,
+       A.ATUAL
+    FROM
+           (
+              SELECT DISTINCT ADD_MONTHS(TRUNC(ADD_MONTHS(TO_DATE(A.LFGJA || A.LFMON || '01', 'YYYYMMDD'), -9),'MM'),12) MESREF,
+                    A.MATNR, A.BWKEY, A.LBKUM, A.SALK3, A.VERPR, A.PEINH, A.LAEPR, A.BKLAS,
+                    A.TIMESTAMP, 4 ATUAL
+                FROM SAPR3.MBEW@ZLP A, MATERIAL B--, PERIODO C
+               WHERE A.MANDT = 100
+                 --AND TRUNC(ADD_MONTHS(TO_DATE(A.LFGJA || A.LFMON || '01', 'YYYYMMDD'), -9),'MM') = C.MES
+                 AND BWKEY IN ('LVAQ','BIBG','BISJ','AAAQ','AABG','AASJ','AGCQ','CPCQ','PDAQ')
+                 AND A.LFGJA NOT IN ('0000')
+                 --AND B.MAKTX NOT LIKE '%ELIMINAR%'
+                 AND A.MATNR = B.MATNR
+                 AND A.BWTAR IN (' '))  A,
+           (
+              SELECT ADD_MONTHS(TRUNC(SYSDATE, 'MM'), MX) MESREF
+                FROM DUAL,
+                   (SELECT ROWNUM - 241 MX FROM DUAL CONNECT BY ROWNUM < = 229) A) B
+     WHERE A.MESREF(+) <= B.MESREF
+)
+
+SELECT
+       TRUNC(SYSDATE,'DD') DT_RESULTADO,
+       A.MESREF,
+       A.MATNR AS MATERIAL,
+       A.WERKS AS CENTRO,
+       A.LBKUM AS QUANTIDADE,
+       A.LBKUM_ANT AS QUANTIDADE_ANT,
+       A.SALK3 AS VALOR,
+       A.VERPR,
+       A.PEINH,
+       --A.LAEPR,
+       --A.TIMESTAMP,
+       B.DT_ENT AS DATA_ENTRADA,
+       B.DT_SAI AS DATA_SAIDA,
+       C.PLANEJ AS PLANEJADOR,
+       C.TP_MAT AS TIPO_MATERIAL,
+       C.MEINS AS UNIDADE,
+       C.PT_REA AS PONTO_REABASTECIMENTO,
+       C.PT_SEG AS PONTO_SEGURANCA,
+       C.PT_MIN AS PONTO_MINIMO,
+       C.PT_MAX AS PONTO_MAXIMO,
+       C.PT_FIX AS PONTO_FIXO,
+       C.QT_PED AS QTD_PEDIDO,
+       C.EST_MAX AS ESTOQUE_MAXIMO,
+       C.PEP,
+       A.BKLAS
+  FROM
+    (
+      SELECT MESREF,
+             MATNR,
+             WERKS,
+             BKLAS,
+             SUM(LBKUM) LBKUM,
+             SUM(SALK3) SALK3,
+             SUM(VERPR) VERPR,
+             SUM(PEINH) PEINH,
+             SUM(LBKUM_ANT) LBKUM_ANT
+             --LAEPR
+             --TIMESTAMP
+        FROM ESTOQUE_HISTORICO
+        GROUP BY MESREF, MATNR, WERKS, BKLAS--, LAEPR
+    ) A,
+    (
+      SELECT B.MATNR, B.WERKS,
+           MAX(CASE WHEN B.SHKZG='S' THEN B.DT_MOV END) AS DT_ENT,
+           MAX(CASE WHEN B.SHKZG='H' THEN B.DT_MOV END) AS DT_SAI
+        FROM ESTOQUE_MOVIMENTO B
+        GROUP BY MATNR, WERKS ORDER BY 1, 2, 3
+    ) B,
+    PCP_PARAMETMRP C,
+    PERIODO D
+  WHERE A.MESREF = D.MES --TO_CHAR(TRUNC(ADD_MONTHS(SYSDATE,-1),'DD'),'YYYYMMDD')
+        AND C.MATNR = B.MATNR(+)
+        AND C.WERKS = B.WERKS(+)
+        AND C.MATNR = A.MATNR(+)
+        AND C.WERKS = A.WERKS(+)
+        --AND A.MATNR IN ('167674')
+;

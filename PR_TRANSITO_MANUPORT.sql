@@ -1,0 +1,62 @@
+CREATE OR REPLACE PROCEDURE PR_TRANSITO_MANUPORT AS
+nRetorno  number(1);
+ErroSql   varchar (240);
+
+BEGIN
+
+EXECUTE IMMEDIATE 'TRUNCATE table BO_ADS.TB_TRANSITO';
+
+COMMIT;
+
+INSERT INTO BO_ADS.TB_TRANSITO
+       SELECT   DISTINCT A.EBELN VBELN,
+         B.MATNR,
+         CASE WHEN H.FKDAT NOT IN (' ','00000000') THEN CASE WHEN A.INCO1 IN ('FOB') THEN C.EINDT ELSE H.FKDAT END END AS DT_FATURADO,
+         CASE WHEN C.EINDT NOT IN (' ','00000000') THEN C.EINDT END AS DT_ESTIMADA,
+         A.INCO1 INCOTERM,
+         H.VTWEG,
+         H.KUNAG,
+         H.FKART, A.IHREZ BSTKD,
+         CASE WHEN C.EINDT NOT IN (' ','00000000') THEN C.EINDT END AS DT_PROMETIDA,
+         CASE WHEN E.BWART IN ('Z61','863','641','Z62') THEN 0 ELSE CASE WHEN B.RETPO = 'X' THEN ((C.WAMNG * -1) - (C.WEMNG)) ELSE ((C.WAMNG) - (C.WEMNG)) END END +
+         CASE WHEN E.BWART IN ('641','Z62') THEN CASE WHEN B.RETPO = 'X' THEN ((C.WAMNG * -1) - (C.WEMNG)) ELSE ((C.WAMNG) - (C.WEMNG)) END ELSE 0 END AS QTDENTREGUE,
+         'Transito' MOVIMENTO
+       FROM SAPR3.EKKO@ZLP A, SAPR3.EKPO@ZLP B, SAPR3.EKET@ZLP C, SAPR3.EKBE@ZLP E, SAPR3.VBRP@ZLP F, SAPR3.VBFA@ZLP G, SAPR3.VBRK@ZLP H
+       WHERE
+          A.MANDT = '100' AND
+          --E.BWART NOT IN ('Z61', '863') AND
+          --B.WERKS IN ('LVAQ','PTX','ANRU','LV02','EPLT') AND
+          B.BSTYP IN ('F', 'L') AND
+          A.RESWK IS NOT NULL AND
+          C.WAMNG <> C.WEMNG AND
+          LENGTH(B.MATNR) > 6 AND
+          C.WAMNG <> 0 AND
+          B.STAPO <> 'X' AND
+          H.FKART = 'YFTB' AND
+          --H.FKART = 'YFTB' AND
+          A.MANDT = B.MANDT AND
+          A.MANDT = C.MANDT AND
+          A.MANDT = E.MANDT AND
+          A.EBELN = B.EBELN AND
+          A.EBELN = C.EBELN AND
+          A.EBELN = E.EBELN AND
+          B.EBELP = C.EBELP AND
+          B.MATNR = E.MATNR AND
+          B.EBELP = E.EBELP AND
+          C.EBELN = F.AUBEL AND
+          G.POSNV = F.VGPOS AND
+          G.VBELN = F.VBELN AND
+          G.VBELN = H.VBELN AND
+          E.BWART <> ' '  AND B.MATNR BETWEEN '1000000' AND '2009999' AND B.ELIKZ<>'X';
+COMMIT;
+
+
+Exception
+  When Others Then
+    nRetorno := 1;
+    ErroSql := substr( SQLERRM , 1, 240 );
+    Insert Into Log_erro Values
+    ( 'Falha na Procedure PR_TRANSITO_MANUPORT ' || USER || ' ' ||
+       TO_CHAR( SYSDATE , 'DD-MM-YY-HH24:MI:SS' ) );
+
+END;
